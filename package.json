@@ -1,0 +1,20 @@
+{
+  "name": "rfu-observer-bot",
+  "version": "1.0.0",
+  "description": "RareForm United Discord bot — whale alerts + Observer Protocol NFT gating",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy-commands": "node deploy-commands.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.0",
+    "axios": "^1.6.7",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5",
+    "xrpl": "^3.0.0"
+  }
+}
