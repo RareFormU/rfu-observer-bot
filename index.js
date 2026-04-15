@@ -150,7 +150,7 @@ client.on('interactionCreate', async interaction => {
 // ── Discord event handlers ────────────────────────────────────────────────────
 client.once('clientReady', () => {
   console.log(`✅ Observer Bot online — ${client.user.tag}`);
-  client.user.setActivity('The Board', { type: ActivityType.Watching }).catch(() => {});
+  client.user.setActivity('The Board', { type: ActivityType.Watching });
 
   // First poll 15s after ready, then every 15 min
   setTimeout(runPoll, 15_000);
