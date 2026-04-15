@@ -8,6 +8,8 @@
 require('dotenv').config();
 
 const http = require('http');
+http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
+
 const { Client, GatewayIntentBits, EmbedBuilder, ActivityType } = require('discord.js');
 const { pollAll } = require('./monitor');
 const { handleVerify } = require('./verify');
@@ -24,28 +26,6 @@ if (missing.length) {
 const CHANNEL_ID    = process.env.DISCORD_CHANNEL_ID;
 const POLL_INTERVAL = 15 * 60 * 1000; // 15 minutes
 const SITE_URL      = 'https://rareformu.io/#observer-section';
-const PORT          = process.env.PORT || 3000;
-
-// ── HTTP health-check server ──────────────────────────────────────────────────
-// Railway requires a process to bind a port or it kills it.
-const server = http.createServer((req, res) => {
-  const status = client.isReady() ? 'online' : 'connecting';
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({
-    status,
-    bot: client.user?.tag || 'not ready',
-    uptime: Math.floor(process.uptime()) + 's',
-    timestamp: new Date().toISOString(),
-  }));
-});
-
-server.listen(PORT, () => {
-  console.log(`[health] HTTP server listening on port ${PORT}`);
-});
-
-server.on('error', err => {
-  console.error('[health] HTTP server error:', err.message);
-});
 
 // ── Discord client ────────────────────────────────────────────────────────────
 const client = new Client({
