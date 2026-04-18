@@ -67,6 +67,26 @@ function buildAlertEmbed(alert) {
   return embed;
 }
 
+// ── Plain-text fallback (used when EMBED_LINKS is denied in channel) ──────────
+function buildAlertText(alert) {
+  const typeLabels = {
+    transfer:    'Whale Transfer',
+    cex_deposit: 'CEX Deposit',
+    dex_swap:    'DEX Swap',
+  };
+  const type = typeLabels[alert.type] || 'Movement Detected';
+  const lines = [
+    `${alert.emoji} **${alert.chain} — ${type}**`,
+    `> *"${alert.teaser}"*`,
+    ``,
+    `**Amount:** ${alert.amount}  |  **≈ USD:** ${alert.usd}`,
+    `**Observer Protocol →** <${SITE_URL}>`,
+  ];
+  if (alert.explorer) lines.push(`**On-Chain:** <${alert.explorer}>`);
+  lines.push(`-# RareForm United — The Board sees all moves.`);
+  return lines.join('\n');
+}
+
 // ── Post alerts ───────────────────────────────────────────────────────────────
 async function postAlerts(alerts) {
   if (!alerts.length) return;
@@ -89,10 +109,21 @@ async function postAlerts(alerts) {
     try {
       await channel.send({ embeds: [buildAlertEmbed(alert)] });
       console.log(`[bot] Posted ${alert.chain} — ${alert.amount} (${alert.usd})`);
-      await new Promise(r => setTimeout(r, 1200));
-    } catch (err) {
-      console.error(`[bot] Failed to post ${alert.chain} alert:`, err.message);
+    } catch (embedErr) {
+      // EMBED_LINKS denied in this channel — fall back to formatted text
+      if (embedErr.code === 50013 || embedErr.message?.includes('Missing Permissions')) {
+        console.warn(`[bot] Embed denied — falling back to text for ${alert.chain} alert`);
+        try {
+          await channel.send(buildAlertText(alert));
+          console.log(`[bot] Posted (text fallback) ${alert.chain} — ${alert.amount} (${alert.usd})`);
+        } catch (textErr) {
+          console.error(`[bot] Text fallback also failed for ${alert.chain}:`, textErr.message);
+        }
+      } else {
+        console.error(`[bot] Failed to post ${alert.chain} alert:`, embedErr.message);
+      }
     }
+    await new Promise(r => setTimeout(r, 1200));
   }
 }
 
