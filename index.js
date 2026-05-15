@@ -7,8 +7,8 @@
 
 require('dotenv').config();
 
-const http = require('http');
-http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
+const express = require('express');
+const crypto  = require('crypto');
 
 const { Client, GatewayIntentBits, EmbedBuilder, ActivityType } = require('discord.js');
 const { pollAll } = require('./monitor');
@@ -34,6 +34,75 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
   ],
 });
+
+// ── Webhook HTTP server (Railway health-check + /agent-alert) ─────────────────
+// Wrapped in try/catch: startup failure logs but does not crash /verify or the
+// 15-min poll loop.
+try {
+  const webhookApp = express();
+
+  // Capture raw body before JSON parsing so HMAC covers the exact bytes sent.
+  webhookApp.use(express.json({
+    verify: (req, _res, buf) => { req.rawBody = buf; },
+  }));
+
+  // Railway healthcheck — must return 2xx on GET /
+  webhookApp.get('/', (_req, res) => res.send('OK'));
+
+  webhookApp.post('/agent-alert', async (req, res) => {
+    // ── Auth ──────────────────────────────────────────────────────────────────
+    const secret = process.env.AGENT_WEBHOOK_SECRET;
+    const sig    = req.headers['x-agent-signature'];
+    if (!secret || !sig) {
+      return res.status(401).json({ error: 'missing signature' });
+    }
+    const expected = crypto.createHmac('sha256', secret)
+      .update(req.rawBody)
+      .digest('hex');
+    const sigBuf = Buffer.from(sig);
+    const expBuf = Buffer.from(expected);
+    const valid  = sigBuf.length === expBuf.length &&
+                   crypto.timingSafeEqual(sigBuf, expBuf);
+    if (!valid) {
+      return res.status(401).json({ error: 'bad signature' });
+    }
+
+    // ── Payload validation ────────────────────────────────────────────────────
+    const { holderId, type, content } = req.body ?? {};
+    if (!holderId || !type || !content) {
+      return res.status(400).json({ error: 'missing required fields: holderId, type, content' });
+    }
+    if (!client.isReady()) {
+      return res.status(503).json({ error: 'discord client not ready' });
+    }
+
+    // ── Deliver: DM first, channel fallback ───────────────────────────────────
+    try {
+      const user = await client.users.fetch(holderId);
+      await user.send({ content });
+      console.log(`[webhook] DM delivered to holderId=${holderId}`);
+      return res.json({ ok: true, delivery: 'dm' });
+    } catch (dmErr) {
+      console.warn(`[webhook] DM to ${holderId} failed (${dmErr.message}) — trying channel fallback`);
+    }
+
+    try {
+      const ch = await client.channels.fetch(CHANNEL_ID);
+      await ch.send({ content: `<@${holderId}>\n${content}` });
+      console.log(`[webhook] Channel fallback delivered for holderId=${holderId}`);
+      return res.json({ ok: true, delivery: 'channel-fallback' });
+    } catch (chErr) {
+      console.error(`[webhook] Channel fallback failed:`, chErr.message);
+      return res.status(500).json({ error: 'delivery failed', detail: chErr.message });
+    }
+  });
+
+  webhookApp.listen(process.env.PORT || 3000, () => {
+    console.log(`[webhook] Listening on port ${process.env.PORT || 3000}`);
+  });
+} catch (webhookErr) {
+  console.error('[webhook] Failed to start — /verify and monitor unaffected:', webhookErr.message);
+}
 
 // ── Build alert embed ─────────────────────────────────────────────────────────
 function buildAlertEmbed(alert) {
