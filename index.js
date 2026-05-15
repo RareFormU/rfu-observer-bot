@@ -69,14 +69,31 @@ try {
 
     // ── Payload validation ────────────────────────────────────────────────────
     const { holderId, type, content } = req.body ?? {};
-    if (!holderId || !type || !content) {
-      return res.status(400).json({ error: 'missing required fields: holderId, type, content' });
+    if (!type || !content) {
+      return res.status(400).json({ error: 'missing required fields: type, content' });
     }
     if (!client.isReady()) {
       return res.status(503).json({ error: 'discord client not ready' });
     }
 
-    // ── Deliver: DM first, channel fallback ───────────────────────────────────
+    // ── Observe-mode: post to channel, no DM path ─────────────────────────────
+    if (type === 'observe') {
+      try {
+        const ch = await client.channels.fetch(CHANNEL_ID);
+        await ch.send({ content });
+        console.log(`[webhook] Observe alert posted to channel ${CHANNEL_ID}`);
+        return res.json({ ok: true, delivery: 'channel' });
+      } catch (chErr) {
+        console.error(`[webhook] Observe channel post failed:`, chErr.message);
+        return res.status(500).json({ error: 'channel delivery failed', detail: chErr.message });
+      }
+    }
+
+    // ── Active-mode: DM first, channel fallback ───────────────────────────────
+    if (!holderId) {
+      return res.status(400).json({ error: 'holderId required for non-observe alerts' });
+    }
+
     try {
       const user = await client.users.fetch(holderId);
       await user.send({ content });
