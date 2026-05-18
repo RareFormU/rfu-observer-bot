@@ -17,6 +17,20 @@ const commands = [
         .setDescription('Your Solana wallet address (public key)')
         .setRequired(true)
     ),
+
+  new SlashCommandBuilder()
+    .setName('agent-status')
+    .setDescription('Show active monitors, signal counts, and last alert time (last 24h).'),
+
+  new SlashCommandBuilder()
+    .setName('agent-escrow')
+    .setDescription('Query on-chain escrow state for an Observer NFT (devnet).')
+    .addStringOption(opt =>
+      opt
+        .setName('nft_mint')
+        .setDescription('Observer NFT mint address (omit to use DEFAULT_TEST_NFT_MINT)')
+        .setRequired(false)
+    ),
 ].map(cmd => cmd.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);

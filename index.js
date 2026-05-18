@@ -3,6 +3,7 @@
  * - HTTP health-check server (required by Railway to keep process alive)
  * - Whale movement alerts every 15 minutes
  * - /verify slash command for Observer Protocol NFT gating
+ * - /agent-status and /agent-escrow slash commands for agent introspection
  */
 
 require('dotenv').config();
@@ -13,6 +14,30 @@ const crypto  = require('crypto');
 const { Client, GatewayIntentBits, EmbedBuilder, ActivityType } = require('discord.js');
 const { pollAll } = require('./monitor');
 const { handleVerify } = require('./verify');
+const { handleAgentStatus } = require('./agent-status');
+const { handleAgentEscrow } = require('./agent-escrow');
+
+// ── Alert ring buffer — last 100 /agent-alert payloads (in-memory, no DB) ────
+const ALERT_BUFFER_MAX = 100;
+const alertBuffer = [];
+
+function extractSource(payload) {
+  const c = (payload.content ?? '').toUpperCase();
+  if (c.includes('WHALE FLOW') || c.includes('WHALE_FLOW')) return 'whale-flow';
+  if (c.includes('JUPITER')) return 'jupiter-swap';
+  if (payload.type && payload.type !== 'observe' && payload.type !== 'custom') return payload.type;
+  return 'unknown';
+}
+
+function pushAlert(payload) {
+  alertBuffer.push({
+    source:     extractSource(payload),
+    ts:         Date.now(),
+    signalId:   payload.meta?.signalId ?? null,
+    confidence: payload.meta?.confidence ?? null,
+  });
+  if (alertBuffer.length > ALERT_BUFFER_MAX) alertBuffer.shift();
+}
 
 // ── Validate required env vars ────────────────────────────────────────────────
 const REQUIRED = ['DISCORD_BOT_TOKEN', 'DISCORD_CHANNEL_ID'];
@@ -75,6 +100,9 @@ try {
     if (!client.isReady()) {
       return res.status(503).json({ error: 'discord client not ready' });
     }
+
+    // ── Buffer every authenticated alert for /agent-status ────────────────────
+    pushAlert(req.body);
 
     // ── Observe-mode: post to channel, no DM path ─────────────────────────────
     if (type === 'observe') {
@@ -234,14 +262,21 @@ async function runPoll() {
 // ── Slash command handler ─────────────────────────────────────────────────────
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
-  if (interaction.commandName !== 'verify') return;
 
-  await handleVerify(interaction).catch(err => {
-    console.error('[verify] Error:', err.message);
-    const reply = { content: 'Verification error — please try again.', ephemeral: true };
+  const errReply = (label, err) => {
+    console.error(`[${label}] Error:`, err.message);
+    const reply = { content: `Error running /${label} — please try again.`, ephemeral: true };
     if (!interaction.replied && !interaction.deferred) interaction.reply(reply).catch(() => {});
     else interaction.editReply(reply).catch(() => {});
-  });
+  };
+
+  if (interaction.commandName === 'verify') {
+    await handleVerify(interaction).catch(err => errReply('verify', err));
+  } else if (interaction.commandName === 'agent-status') {
+    await handleAgentStatus(interaction, alertBuffer).catch(err => errReply('agent-status', err));
+  } else if (interaction.commandName === 'agent-escrow') {
+    await handleAgentEscrow(interaction, alertBuffer).catch(err => errReply('agent-escrow', err));
+  }
 });
 
 // ── Discord event handlers ────────────────────────────────────────────────────
