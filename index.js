@@ -11,7 +11,7 @@ require('dotenv').config();
 const express = require('express');
 const crypto  = require('crypto');
 
-const { Client, GatewayIntentBits, EmbedBuilder, ActivityType } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActivityType, SlashCommandBuilder } = require('discord.js');
 const { pollAll } = require('./monitor');
 const { handleVerify } = require('./verify');
 const { handleAgentStatus } = require('./agent-status');
@@ -51,6 +51,29 @@ if (missing.length) {
 const CHANNEL_ID    = process.env.DISCORD_CHANNEL_ID;
 const POLL_INTERVAL = 15 * 60 * 1000; // 15 minutes
 const SITE_URL      = 'https://rareformu.io/#observer-section';
+
+// ── Slash command definitions (registered on ready) ───────────────────────────
+const SLASH_COMMANDS = [
+  new SlashCommandBuilder()
+    .setName('verify')
+    .setDescription('Verify your Observer Protocol NFT ownership and claim the Elite Observer role.')
+    .addStringOption(opt =>
+      opt.setName('wallet')
+        .setDescription('Your Solana wallet address (public key)')
+        .setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('agent-status')
+    .setDescription('Show active monitors, signal counts, and last alert time (last 24h).'),
+
+  new SlashCommandBuilder()
+    .setName('agent-escrow')
+    .setDescription('Query on-chain escrow state for an Observer NFT (devnet).')
+    .addStringOption(opt =>
+      opt.setName('nft_mint')
+        .setDescription('Observer NFT mint address (omit to use DEFAULT_TEST_NFT_MINT)')
+        .setRequired(false)),
+].map(cmd => cmd.toJSON());
 
 // ── Discord client ────────────────────────────────────────────────────────────
 const client = new Client({
@@ -280,9 +303,30 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ── Discord event handlers ────────────────────────────────────────────────────
-client.once('clientReady', () => {
+client.once('clientReady', async () => {
   console.log(`✅ Observer Bot online — ${client.user.tag}`);
   client.user.setActivity('The Board', { type: ActivityType.Watching });
+
+  // Register slash commands on every boot — guild-scoped (instant) when
+  // DISCORD_GUILD_ID is set, otherwise global (~1h propagation).
+  try {
+    if (process.env.DISCORD_GUILD_ID) {
+      const guild = client.guilds.cache.get(process.env.DISCORD_GUILD_ID);
+      if (guild) {
+        await guild.commands.set(SLASH_COMMANDS);
+        console.log(`[bot] Registered ${SLASH_COMMANDS.length} slash commands (guild)`);
+      } else {
+        console.warn('[bot] DISCORD_GUILD_ID set but guild not in cache — falling back to global');
+        await client.application.commands.set(SLASH_COMMANDS);
+        console.log(`[bot] Registered ${SLASH_COMMANDS.length} slash commands (global)`);
+      }
+    } else {
+      await client.application.commands.set(SLASH_COMMANDS);
+      console.log(`[bot] Registered ${SLASH_COMMANDS.length} slash commands (global)`);
+    }
+  } catch (err) {
+    console.error('[bot] Slash command registration failed (non-fatal):', err.message);
+  }
 
   // First poll 15s after ready, then every 15 min
   setTimeout(runPoll, 15_000);
