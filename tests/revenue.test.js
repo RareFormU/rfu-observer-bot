@@ -1,14 +1,18 @@
 const assert = require('node:assert/strict');
-const test = require('node:test');
+const test   = require('node:test');
 const { Keypair, PublicKey } = require('@solana/web3.js');
 
 const {
   CLAIM_SCALE,
+  STATS_TTL_MS,
   createRevenueService,
   formatUsdc,
-  handleMyRevenue,
-  handleRevenueStats,
-} = require('../revenue');
+} = require('../revenue-service');
+
+const { handleMyRevenue }    = require('../my-revenue');
+const { handleRevenueStats } = require('../revenue-stats');
+
+// ── Buffer helpers ────────────────────────────────────────────────────────────
 
 function writePubkey(buf, offset, pubkey) {
   pubkey.toBuffer().copy(buf, offset);
@@ -88,6 +92,8 @@ function fakeInteraction(userId = 'discord-user') {
   };
 }
 
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
 test('/my-revenue happy path renders private revenue embed with claim button', async () => {
   const interaction = fakeInteraction();
   const wallet = Keypair.generate().publicKey.toBase58();
@@ -137,9 +143,9 @@ test('/my-revenue verified wallet with no claim accounts reports no holdings', a
 });
 
 test('revenue service caches wallet reads for 60 seconds', async () => {
-  const holder = Keypair.generate().publicKey;
-  const mint = Keypair.generate().publicKey;
-  const collection = new PublicKey('A4mK2dc1unr56CC8zr5kdyzK2KgAQ1uiWzbpY7A5Wn1U');
+  const holder      = Keypair.generate().publicKey;
+  const mint        = Keypair.generate().publicKey;
+  const collection  = new PublicKey('A4mK2dc1unr56CC8zr5kdyzK2KgAQ1uiWzbpY7A5Wn1U');
   const marketplace = Keypair.generate().publicKey;
   const acceptedMint = Keypair.generate().publicKey;
   let accountInfoCalls = 0;
@@ -171,12 +177,43 @@ test('revenue service caches wallet reads for 60 seconds', async () => {
   };
   const service = createRevenueService({ connection: conn, acceptedMint });
 
-  const first = await service.getWalletRevenue(holder.toBase58());
+  const first  = await service.getWalletRevenue(holder.toBase58());
   const second = await service.getWalletRevenue(holder.toBase58());
 
   assert.equal(first.claimable, 8_000_000n);
   assert.equal(second.claimable, 8_000_000n);
   assert.equal(accountInfoCalls, 3);
+});
+
+test('revenue service caches getStats for 5 minutes', async () => {
+  const marketplace  = Keypair.generate().publicKey;
+  const acceptedMint = Keypair.generate().publicKey;
+  let programAccountCalls = 0;
+  let getAccountInfoCalls  = 0;
+  const conn = {
+    async getAccountInfo() {
+      getAccountInfoCalls += 1;
+      return { data: poolData({ marketplace, acceptedMint, accumulated: 0n, distributed: 5_000_000n }) };
+    },
+    async getProgramAccounts() {
+      programAccountCalls += 1;
+      return [];
+    },
+  };
+
+  let fakeNow = 0;
+  const service = createRevenueService({ connection: conn, acceptedMint, now: () => fakeNow });
+
+  const first  = await service.getStats();
+  const second = await service.getStats();  // cache hit — no extra RPC calls
+
+  assert.equal(programAccountCalls, 1);
+  assert.equal(first.totalHoldersEarning, second.totalHoldersEarning);
+
+  // Advance past TTL → cache should expire
+  fakeNow = STATS_TTL_MS + 1;
+  await service.getStats();
+  assert.equal(programAccountCalls, 2);
 });
 
 test('/revenue-stats aggregates totals and tier counts', async () => {
@@ -185,7 +222,7 @@ test('/revenue-stats aggregates totals and tier counts', async () => {
     async getStats() {
       return {
         totalDistributed: 12_000_000n,
-        totalClaimed: 5_000_000n,
+        totalClaimed:     5_000_000n,
         totalHoldersEarning: 2,
         tierCounts: { Initiate: 1, Observer: 2, 'Community Layer': 1 },
       };
