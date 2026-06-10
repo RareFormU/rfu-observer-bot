@@ -5,6 +5,7 @@
  */
 
 const { Connection, PublicKey } = require('@solana/web3.js');
+const { linkWalletForUser } = require('./wallet-links');
 
 const OBS_COLLECTION  = new PublicKey('A4mK2dc1unr56CC8zr5kdyzK2KgAQ1uiWzbpY7A5Wn1U');
 const CL_COLLECTION   = new PublicKey('6qexjNBu6BYwpbDfpBzywaj7b4NaQKVDFyhEJ4dKLbF3');
@@ -83,6 +84,8 @@ async function handleVerify(interaction) {
 
   // ── Tier 2: Community Layer ──────────────────────────────────────────────────
   if (holdsCL) {
+    linkWalletForUser(interaction.user.id, walletPk.toBase58(), { tier: 'Community Layer' });
+
     // Assign both roles
     if (interaction.guild) {
       try {
@@ -110,6 +113,8 @@ async function handleVerify(interaction) {
 
   // ── Tier 1: Observer Protocol ────────────────────────────────────────────────
   if (holdsObs) {
+    linkWalletForUser(interaction.user.id, walletPk.toBase58(), { tier: 'Observer' });
+
     if (obsRoleId && interaction.guild) {
       try {
         const member = await interaction.guild.members.fetch(interaction.user.id);
