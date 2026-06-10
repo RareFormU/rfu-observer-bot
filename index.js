@@ -4,6 +4,7 @@
  * - Whale movement alerts every 15 minutes
  * - /verify slash command for Observer Protocol NFT gating
  * - /agent-status and /agent-escrow slash commands for agent introspection
+ * - /my-revenue, /revenue-stats, /revenue-explainer for holder revenue
  */
 
 require('dotenv').config();
@@ -16,6 +17,9 @@ const { pollAll } = require('./monitor');
 const { handleVerify } = require('./verify');
 const { handleAgentStatus } = require('./agent-status');
 const { handleAgentEscrow } = require('./agent-escrow');
+const { handleMyRevenue } = require('./my-revenue');
+const { handleRevenueStats } = require('./revenue-stats');
+const { handleRevenueExplainer } = require('./revenue-explainer');
 
 // ── Alert ring buffer — last 100 /agent-alert payloads (in-memory, no DB) ────
 const ALERT_BUFFER_MAX = 100;
@@ -73,6 +77,18 @@ const SLASH_COMMANDS = [
       opt.setName('nft_mint')
         .setDescription('Observer NFT mint address (omit to use DEFAULT_TEST_NFT_MINT)')
         .setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('my-revenue')
+    .setDescription('Show your RFU holder revenue, tier, and claim link.'),
+
+  new SlashCommandBuilder()
+    .setName('revenue-stats')
+    .setDescription('Show aggregate RFU holder revenue stats.'),
+
+  new SlashCommandBuilder()
+    .setName('revenue-explainer')
+    .setDescription('Explain how RFU agent-to-agent revenue flows to NFT holders.'),
 ].map(cmd => cmd.toJSON());
 
 // ── Discord client ────────────────────────────────────────────────────────────
@@ -295,6 +311,12 @@ client.on('interactionCreate', async interaction => {
 
   if (interaction.commandName === 'verify') {
     await handleVerify(interaction).catch(err => errReply('verify', err));
+  } else if (interaction.commandName === 'my-revenue') {
+    await handleMyRevenue(interaction).catch(err => errReply('my-revenue', err));
+  } else if (interaction.commandName === 'revenue-stats') {
+    await handleRevenueStats(interaction).catch(err => errReply('revenue-stats', err));
+  } else if (interaction.commandName === 'revenue-explainer') {
+    await handleRevenueExplainer(interaction).catch(err => errReply('revenue-explainer', err));
   } else if (interaction.commandName === 'agent-status') {
     await handleAgentStatus(interaction, alertBuffer).catch(err => errReply('agent-status', err));
   } else if (interaction.commandName === 'agent-escrow') {
