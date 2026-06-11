@@ -1,12 +1,15 @@
 const assert = require('node:assert/strict');
 const test   = require('node:test');
 const { Keypair, PublicKey } = require('@solana/web3.js');
+const { ButtonStyle } = require('discord.js');
 
 const {
+  CLAIM_URL,
   CLAIM_SCALE,
   STATS_TTL_MS,
   createRevenueService,
   formatUsdc,
+  sweepExpiredCacheEntries,
 } = require('../revenue-service');
 
 const { handleMyRevenue }    = require('../my-revenue');
@@ -117,7 +120,9 @@ test('/my-revenue happy path renders private revenue embed with claim button', a
   const reply = interaction.calls.at(-1)[1];
   assert.equal(reply.embeds.length, 1);
   assert.equal(reply.components.length, 1);
-  assert.equal(reply.components[0].components[0].data.custom_id, 'claim_revenue');
+  assert.equal(reply.components[0].components[0].data.style, ButtonStyle.Link);
+  assert.equal(reply.components[0].components[0].data.url, CLAIM_URL);
+  assert.equal(reply.components[0].components[0].data.custom_id, undefined);
 });
 
 test('/my-revenue unverified user asks them to run /verify first', async () => {
@@ -185,6 +190,19 @@ test('revenue service caches wallet reads for 60 seconds', async () => {
   assert.equal(accountInfoCalls, 3);
 });
 
+test('revenue service evicts expired wallet cache entries', () => {
+  const walletCache = new Map([
+    ['expired', { value: {}, expiresAt: 999 }],
+    ['fresh', { value: {}, expiresAt: 1_001 }],
+  ]);
+
+  const removed = sweepExpiredCacheEntries(walletCache, 1_000);
+
+  assert.equal(removed, 1);
+  assert.equal(walletCache.has('expired'), false);
+  assert.equal(walletCache.has('fresh'), true);
+});
+
 test('revenue service caches getStats for 5 minutes', async () => {
   const marketplace  = Keypair.generate().publicKey;
   const acceptedMint = Keypair.generate().publicKey;
@@ -214,6 +232,35 @@ test('revenue service caches getStats for 5 minutes', async () => {
   fakeNow = STATS_TTL_MS + 1;
   await service.getStats();
   assert.equal(programAccountCalls, 2);
+});
+
+test('revenue service deduplicates earning wallets in getStats', async () => {
+  const programId    = Keypair.generate().publicKey;
+  const acceptedMint = Keypair.generate().publicKey;
+  const marketplace  = PublicKey.findProgramAddressSync(
+    [Buffer.from('marketplace'), acceptedMint.toBuffer()],
+    programId
+  )[0];
+  const holderA = Keypair.generate().publicKey;
+  const holderB = Keypair.generate().publicKey;
+  const conn = {
+    async getAccountInfo() {
+      return { data: poolData({ marketplace, acceptedMint, accumulated: 1_000_000n * CLAIM_SCALE, distributed: 3_000_000n }) };
+    },
+    async getProgramAccounts() {
+      return [
+        { account: { data: claimData({ marketplace, holder: holderA, mint: Keypair.generate().publicKey, tier: 1, weight: 1 }) } },
+        { account: { data: claimData({ marketplace, holder: holderA, mint: Keypair.generate().publicKey, tier: 2, weight: 1 }) } },
+        { account: { data: claimData({ marketplace, holder: holderB, mint: Keypair.generate().publicKey, tier: 0, weight: 1 }) } },
+      ];
+    },
+  };
+  const service = createRevenueService({ connection: conn, acceptedMint, programId });
+
+  const stats = await service.getStats();
+
+  assert.equal(stats.totalHoldersEarning, 2);
+  assert.deepEqual(stats.tierCounts, { Initiate: 1, Observer: 1, 'Community Layer': 1 });
 });
 
 test('/revenue-stats aggregates totals and tier counts', async () => {

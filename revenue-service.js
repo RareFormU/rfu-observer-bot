@@ -14,6 +14,13 @@ const CLAIM_URL      = 'https://rareformu.io/board#claim';
 
 const tierNames = ['Initiate', 'Observer', 'Community Layer'];
 const cache = new Map();
+const cacheEvictionTimer = setInterval(() => {
+  sweepExpiredCacheEntries(cache);
+}, CACHE_TTL_MS);
+
+if (typeof cacheEvictionTimer.unref === 'function') {
+  cacheEvictionTimer.unref();
+}
 
 // ── Borsh decode helpers ──────────────────────────────────────────────────────
 
@@ -97,6 +104,17 @@ function formatUsdc(baseUnits) {
 
 function shortWallet(wallet) {
   return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
+}
+
+function sweepExpiredCacheEntries(walletCache = cache, nowMs = Date.now()) {
+  let removed = 0;
+  for (const [key, entry] of walletCache.entries()) {
+    if (!entry || entry.expiresAt <= nowMs) {
+      walletCache.delete(key);
+      removed += 1;
+    }
+  }
+  return removed;
 }
 
 // ── PDA derivation ────────────────────────────────────────────────────────────
@@ -235,16 +253,16 @@ function createRevenueService(options = {}) {
       .filter(claim => claim && claim.marketplace === marketplace.toBase58());
 
     const tierCounts = { Initiate: 0, Observer: 0, 'Community Layer': 0 };
-    let totalHoldersEarning = 0;
+    const earningWallets = new Set();
     for (const claim of claims) {
       tierCounts[claim.tier] = (tierCounts[claim.tier] || 0) + 1;
-      if (calculateClaimable(pool, claim) > 0n) totalHoldersEarning += 1;
+      if (calculateClaimable(pool, claim) > 0n) earningWallets.add(claim.holderWallet);
     }
 
     const value = {
       totalDistributed: pool.totalDistributedToHolders,
       totalClaimed:     pool.totalClaimedByHolders,
-      totalHoldersEarning,
+      totalHoldersEarning: earningWallets.size,
       tierCounts,
     };
     statsCache = { value, expiresAt: now() + STATS_TTL_MS };
@@ -269,4 +287,5 @@ module.exports = {
   defaultRevenueService,
   formatUsdc,
   shortWallet,
+  sweepExpiredCacheEntries,
 };

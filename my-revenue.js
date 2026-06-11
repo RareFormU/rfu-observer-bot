@@ -21,9 +21,9 @@ function buildMyRevenueEmbed(summary) {
 function claimButtonRow() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId('claim_revenue')
       .setLabel('Claim')
-      .setStyle(ButtonStyle.Primary)
+      .setStyle(ButtonStyle.Link)
+      .setURL(CLAIM_URL)
   );
 }
 
@@ -46,13 +46,4 @@ async function handleMyRevenue(interaction, service = defaultRevenueService, wal
   });
 }
 
-async function handleClaimButton(interaction) {
-  try {
-    await interaction.user.send(`Open the RFU dashboard to claim holder revenue: ${CLAIM_URL}`);
-    return interaction.reply({ content: 'Claim link sent to your DMs.', ephemeral: true });
-  } catch {
-    return interaction.reply({ content: `I could not DM you. Claim here: ${CLAIM_URL}`, ephemeral: true });
-  }
-}
-
-module.exports = { handleMyRevenue, handleClaimButton };
+module.exports = { handleMyRevenue };
