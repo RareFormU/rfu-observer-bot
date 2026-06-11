@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "deploy-commands": "node deploy-commands.js"
+    "deploy-commands": "node deploy-commands.js",
+    "build": "node --check index.js && node --check verify.js && node --check revenue-service.js && node --check my-revenue.js && node --check revenue-stats.js && node --check revenue-explainer.js && node --check agent-status.js && node --check wallet-links.js && node --check deploy-commands.js",
+    "test": "node --test tests/*.test.js"
   },
   "engines": {
     "node": ">=18.0.0"

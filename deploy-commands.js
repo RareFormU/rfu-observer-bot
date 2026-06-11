@@ -17,7 +17,6 @@ const commands = [
         .setDescription('Your Solana wallet address (public key)')
         .setRequired(true)
     ),
-
   new SlashCommandBuilder()
     .setName('agent-status')
     .setDescription('Show active monitors, signal counts, and last alert time (last 24h).'),
@@ -31,6 +30,18 @@ const commands = [
         .setDescription('Observer NFT mint address (omit to use DEFAULT_TEST_NFT_MINT)')
         .setRequired(false)
     ),
+
+  new SlashCommandBuilder()
+    .setName('my-revenue')
+    .setDescription('Show your RFU holder revenue, tier, and claim link.'),
+
+  new SlashCommandBuilder()
+    .setName('revenue-stats')
+    .setDescription('Show aggregate RFU holder revenue stats.'),
+
+  new SlashCommandBuilder()
+    .setName('revenue-explainer')
+    .setDescription('Explain how RFU agent-to-agent revenue flows to NFT holders.'),
 ].map(cmd => cmd.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);
