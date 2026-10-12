@@ -1,6 +1,6 @@
 # RFU Observer Bot
 
-Discord bot for RareForm United. Posts on-chain whale movement alerts and gates the Elite Observer role via Observer Protocol NFT verification.
+Discord bot for RareForm United. Alert publication is paused; future posts require independently verified mainnet transactions and full wallet explorer links and gates the Elite Observer role via Observer Protocol NFT verification.
 
 ---
 
