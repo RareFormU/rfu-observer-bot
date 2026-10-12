@@ -34,33 +34,7 @@ function addSeen(cache, id) {
 }
 
 // ── RFU brand-voice teasers ───────────────────────────────────────────────────
-const TEASERS = {
-  transfer: [
-    'The Queen sees a move forming on {chain}. Something large is in transit.',
-    'Quiet hands move first. A position is shifting on {chain}.',
-    'An operator is repositioning on {chain}. The Board is adjusting.',
-    'Power rarely announces itself. But the ledger does. {chain} shows a significant transfer.',
-    'Not all moves are visible at first. This one on {chain} just became visible.',
-  ],
-  cex_deposit: [
-    'Coins are moving toward the exchange on {chain}. Liquidation pressure building, or a trap being set?',
-    'The Board detects an inbound CEX deposit on {chain}. Anticipate turbulence.',
-    'Someone is loading the cannon on {chain}. Watch the order book.',
-    'A deposit to centralized rails on {chain}. The sovereign path leads elsewhere.',
-  ],
-  dex_swap: [
-    'A large on-chain swap just executed on {chain}. Position rotation in progress.',
-    'The Board confirms a significant DEX movement on {chain}. Rotation or exit?',
-    'On-chain conviction on {chain}. A whale moved without permission from any exchange.',
-    'Self-custody in motion on {chain}. A significant swap — no custodian required.',
-  ],
-};
-
-function teaser(type, chain) {
-  const pool = TEASERS[type] || TEASERS.transfer;
-  const msg  = pool[Math.floor(Math.random() * pool.length)];
-  return msg.replace('{chain}', chain);
-}
+function teaser() { return 'on-chain activity, unverified interpretation. Not financial advice. Not a prediction.'; }
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 function fmtUSD(n) {

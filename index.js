@@ -8,6 +8,7 @@
  */
 
 require('dotenv').config();
+const {verifyAlert,rpcFromEnv,reservePublication,evidenceMessage}=require('./alert-evidence.cjs');
 
 const express = require('express');
 const crypto  = require('crypto');
@@ -132,16 +133,21 @@ try {
     }
 
     // ── Payload validation ────────────────────────────────────────────────────
-    const { holderId, type, content } = req.body ?? {};
+    const { holderId, type } = req.body ?? {};
+    const safe=await verifyAlert({...req.body,signal_type:type},rpcFromEnv());
+    if(!safe)return res.status(422).json({error:'no_evidence_no_alert'});
+    const content=evidenceMessage(safe);
     if (!type || !content) {
       return res.status(400).json({ error: 'missing required fields: type, content' });
     }
     if (!client.isReady()) {
       return res.status(503).json({ error: 'discord client not ready' });
     }
+    const sink=type==='observe'?'discord:'+CHANNEL_ID:'discord-dm:'+holderId;
+    if(!await reservePublication(safe,sink))return res.status(409).json({error:'duplicate_or_reservation_unavailable'});
 
     // ── Buffer every authenticated alert for /agent-status ────────────────────
-    pushAlert(req.body);
+    pushAlert({type:'ONCHAIN_ACTIVITY',content,meta:{signalId:safe.alert_id}});
 
     // ── Observe-mode: post to channel, no DM path ─────────────────────────────
     if (type === 'observe') {
@@ -170,15 +176,8 @@ try {
       console.warn(`[webhook] DM to ${holderId} failed (${dmErr.message}) — trying channel fallback`);
     }
 
-    try {
-      const ch = await client.channels.fetch(CHANNEL_ID);
-      await ch.send({ content: `<@${holderId}>\n${content}` });
-      console.log(`[webhook] Channel fallback delivered for holderId=${holderId}`);
-      return res.json({ ok: true, delivery: 'channel-fallback' });
-    } catch (chErr) {
-      console.error(`[webhook] Channel fallback failed:`, chErr.message);
-      return res.status(500).json({ error: 'delivery failed', detail: chErr.message });
-    }
+    // Never retry an uncertain DM as a channel post. Reservation remains consumed.
+    return res.status(500).json({error:'delivery_failed_no_retry'});
   });
 
   webhookApp.listen(process.env.PORT || 3000, () => {
@@ -190,58 +189,18 @@ try {
 
 // ── Build alert embed ─────────────────────────────────────────────────────────
 function buildAlertEmbed(alert) {
-  const typeLabels = {
-    transfer:    'Whale Transfer',
-    cex_deposit: 'CEX Deposit',
-    dex_swap:    'DEX Swap',
-  };
-
-  const embed = new EmbedBuilder()
-    .setColor(alert.color)
-    .setTitle(`${alert.emoji} ${alert.chain} — ${typeLabels[alert.type] || 'Movement Detected'}`)
-    .setDescription(`*"${alert.teaser}"*`)
-    .addFields(
-      { name: 'Amount', value: alert.amount, inline: true },
-      { name: '≈ USD',  value: alert.usd,    inline: true },
-      { name: 'Type',   value: typeLabels[alert.type] || '—', inline: true },
-      {
-        name: 'Full Analysis',
-        value: `[Observer Protocol →](${SITE_URL})\nMint access to unlock the full briefing.`,
-      }
-    )
-    .setFooter({ text: 'RareForm United — The Board sees all moves.' })
-    .setTimestamp();
-
-  if (alert.explorer) {
-    embed.setURL(alert.explorer);
-    embed.addFields({ name: 'On-Chain', value: `[View →](${alert.explorer})`, inline: true });
-  }
-
-  return embed;
+  return new EmbedBuilder().setTitle('On-chain activity').setDescription(evidenceMessage(alert)).setFooter({text:'RareForm United'});
 }
 
 // ── Plain-text fallback (used when EMBED_LINKS is denied in channel) ──────────
-function buildAlertText(alert) {
-  const typeLabels = {
-    transfer:    'Whale Transfer',
-    cex_deposit: 'CEX Deposit',
-    dex_swap:    'DEX Swap',
-  };
-  const type = typeLabels[alert.type] || 'Movement Detected';
-  const lines = [
-    `${alert.emoji} **${alert.chain} — ${type}**`,
-    `> *"${alert.teaser}"*`,
-    ``,
-    `**Amount:** ${alert.amount}  |  **≈ USD:** ${alert.usd}`,
-    `**Observer Protocol →** <${SITE_URL}>`,
-  ];
-  if (alert.explorer) lines.push(`**On-Chain:** <${alert.explorer}>`);
-  lines.push(`-# RareForm United — The Board sees all moves.`);
-  return lines.join('\n');
-}
+function buildAlertText(alert) { return evidenceMessage(alert); }
 
 // ── Post alerts ───────────────────────────────────────────────────────────────
 async function postAlerts(alerts) {
+  const verified=[];
+  for(const alert of alerts){const safe=await verifyAlert(alert,rpcFromEnv());if(safe&&await reservePublication(safe,'discord:'+CHANNEL_ID))verified.push(safe);}
+  // Legacy monitor payloads lack verifiable evidence and are intentionally blocked.
+  alerts=verified;
   if (!alerts.length) return;
   if (!client.isReady()) { console.warn('[bot] Client not ready — skipping post'); return; }
 
@@ -260,14 +219,14 @@ async function postAlerts(alerts) {
 
   for (const alert of alerts) {
     try {
-      await channel.send({ embeds: [buildAlertEmbed(alert)] });
+      await channel.send({content:evidenceMessage(alert),allowedMentions:{parse:[]}});
       console.log(`[bot] Posted ${alert.chain} — ${alert.amount} (${alert.usd})`);
     } catch (embedErr) {
       // EMBED_LINKS denied in this channel — fall back to formatted text
       if (embedErr.code === 50013 || embedErr.message?.includes('Missing Permissions')) {
         console.warn(`[bot] Embed denied — falling back to text for ${alert.chain} alert`);
         try {
-          await channel.send(buildAlertText(alert));
+          // No ambiguous-delivery retry or raw narrative fallback.
           console.log(`[bot] Posted (text fallback) ${alert.chain} — ${alert.amount} (${alert.usd})`);
         } catch (textErr) {
           console.error(`[bot] Text fallback also failed for ${alert.chain}:`, textErr.message);
